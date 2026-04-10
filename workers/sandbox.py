@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from brain import sentinel_brain
 
 # load local .env if running locally (for deployment)
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -13,20 +14,22 @@ load_dotenv(env_path)
 image = (
     modal.Image.debian_slim()
     .apt_install("git")
-    .pip_install("supabase", "python-dotenv", "fastapi[standard]")
+    .pip_install("supabase", "python-dotenv", "fastapi[standard]", "langgraph", "langchain", "langchain-openai")
+    .add_local_python_source("brain")
 )
 
 app = modal.App("sentinel-zero-worker")
 volume = modal.Volume.from_name("repo-storage", create_if_missing=True)
 
-# 2. Supabase Credentials (inject into Modal container)
-supabase_secrets = modal.Secret.from_dict({
+# 2. Secrets (inject into Modal container)
+modal_secrets = modal.Secret.from_dict({
     "SUPABASE_URL": os.environ.get("SUPABASE_URL", ""),
-    "SUPABASE_SERVICE_ROLE_KEY": os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    "SUPABASE_SERVICE_ROLE_KEY": os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
+    "NEBIUS_API_KEY": os.environ.get("NEBIUS_API_KEY", "")
 })
 
 # 3. The Core Worker Function
-@app.function(image=image, volumes={"/repos": volume}, secrets=[supabase_secrets])
+@app.function(image=image, volumes={"/repos": volume}, secrets=[modal_secrets], timeout=600)
 def clone_and_inspect(repo_url: str, job_id: str):
     # Read from the container's environment (injected via secrets)
     supabase_url = os.environ.get("SUPABASE_URL")
@@ -53,12 +56,41 @@ def clone_and_inspect(repo_url: str, job_id: str):
 
         # Success - Update Supabase
         supabase.table("scan_jobs").update({
-            "status": "cloned",
+            "status": "analyzing",
             "logs":[{"event": "clone_success", "output": process.stdout}]
         }).eq("id", job_id).execute()
 
         print("✅ Clone successful and Supabase updated!")
-        return {"status": "success", "path": target_path}
+        
+        # Wake up the Brain!
+        initial_state = {
+            "repo_path": target_path,
+            "files_to_scan": [],
+            "current_file_index": 0,
+            "vulnerabilities":[],
+            "logs": ["Brain initialized."]
+        }
+        
+        # Run the LangGraph Agent
+        final_state = sentinel_brain.invoke(initial_state)
+
+        # Send the findings back to Supabase
+        supabase.table("scan_jobs").update({
+            "status": "completed",
+            "logs": final_state["logs"]
+        }).eq("id", job_id).execute()
+
+        # If bugs found, insert them into the Vulnerabilities table
+        for vuln in final_state["vulnerabilities"]:
+            supabase.table("vulnerabilities").insert({
+                "job_id": job_id,
+                "file_path": vuln["file"],
+                "description": vuln["finding"],
+                "severity": "high",
+                "status": "open"
+            }).execute()
+
+        return {"status": "success", "bugs_found": len(final_state["vulnerabilities"])}
 
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
