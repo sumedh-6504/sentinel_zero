@@ -3,7 +3,6 @@ from typing import TypedDict, List
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-import blaxel
 
 # ---------------------------------------------------------
 # 1. DEFINE THE MEMORY (The Agent's Clipboard)
@@ -20,22 +19,31 @@ class AgentState(TypedDict):
 # ---------------------------------------------------------
 
 def node_gather_files(state: AgentState):
-    """Finds all Python/JS/TS files in the cloned repo."""
+    """Finds all Python/JS/TS files in the cloned repo, ignoring dependencies."""
     state["logs"].append("Gathering files to scan...")
-    target_files =[]
+    target_files = []
     
-    # Walk through the directory Modal created
-    for root, _, files in os.walk(state["repo_path"]):
+    # Directories we DO NOT want to scan
+    ignore_dirs = {".git", "node_modules", "venv", "__pycache__", "dist", "build"}
+    
+    for root, dirs, files in os.walk(state["repo_path"]):
+        # Modify the 'dirs' list in-place to prevent os.walk from entering ignored directories
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        
         for file in files:
-            if file.endswith((".py", ".ts", ".js")):
+            if file.endswith((".py", ".ts", ".js", ".tsx", ".jsx")):
                 target_files.append(os.path.join(root, file))
     
-    # FOR SAFETY & COST: We only scan the first 3 files during development
-    state["files_to_scan"] = target_files[:3] 
+    # Remove the `[:3]` slice so it scans ALL valid files!
+    state["files_to_scan"] = target_files
+    state["logs"].append(f"Found {len(target_files)} source files to scan.")
     return state
 
+
+import json # Make sure to add 'import json' at the very top of brain.py
+
 def node_analyze_code(state: AgentState):
-    """Reads a file and asks Nebius if it is vulnerable."""
+    """Reads a file and asks Nebius if it is vulnerable with an advanced structural prompt."""
     idx = state["current_file_index"]
     file_path = state["files_to_scan"][idx]
     
@@ -43,35 +51,59 @@ def node_analyze_code(state: AgentState):
         with open(file_path, "r", encoding="utf-8") as f:
             code_content = f.read()
             
+        # Advanced, strict prompt engineering for vulnerability detection
         prompt = f"""
-        You are a Senior AppSec Engineer. Analyze the following code.
-        If there is a critical vulnerability (SQLi, XSS, Hardcoded Secrets), reply strictly in this JSON format:
-        {{"vulnerable": true, "type": "bug_type", "description": "brief details"}}
-        If it is safe, reply strictly: {{"vulnerable": false}}
+        You are an elite Application Security Engineer performing static analysis.
+        Analyze the following code for critical vulnerabilities (SQL Injection, XSS, Path Traversal, Hardcoded Secrets, Command Injection).
         
-        CODE:
+        RULES:
+        1. Ignore best-practice warnings (e.g., missing docstrings) or minor linting issues.
+        2. Focus ONLY on exploitable security flaws.
+        3. You must respond ONLY with a raw JSON object. Do not include markdown formatting, backticks, or conversational text.
+        
+        JSON SCHEMA:
+        {{
+            "vulnerable": boolean,
+            "type": "string (e.g., SQLi, XSS) or null",
+            "description": "string (Detailed explanation of the exploit vector) or null"
+        }}
+        
+        CODE TO ANALYZE:
         {code_content}
         """
         
-        # Lazily instantiate the LLM at run-time so Modal Secrets are available
         llm = ChatOpenAI(
             base_url="https://api.studio.nebius.ai/v1/",
             api_key=os.getenv("NEBIUS_API_KEY"),
             model="meta-llama/Llama-3.3-70B-Instruct-fast",
-            temperature=0.1
+            temperature=0.0 # Changed to 0.0 for maximum determinism
         )
 
         response = llm.invoke([
-            SystemMessage(content="You output only valid JSON."),
+            SystemMessage(content="You are a strict JSON API. Output only raw JSON."),
             HumanMessage(content=prompt)
         ])
         
-        # In production, we parse this JSON properly. For now, we store the raw output.
-        if "true" in response.content.lower():
-            state["vulnerabilities"].append({"file": file_path, "finding": response.content})
-            state["logs"].append(f"🚨 Vulnerability found in {file_path}")
-        else:
-            state["logs"].append(f"✅ {file_path} is safe.")
+        # Clean the response in case the LLM stubbornly returns markdown
+        clean_json_str = response.content.replace("```json", "").replace("```", "").strip()
+        
+        try:
+            # Safely parse the LLM's response into a Python dictionary
+            result = json.loads(clean_json_str)
+            
+            if result.get("vulnerable") is True:
+                # Store the structured dict, not the raw string string
+                state["vulnerabilities"].append({
+                    "file": file_path, 
+                    "finding": result.get("description", "Unknown vulnerability"),
+                    "type": result.get("type", "Unknown")
+                })
+                state["logs"].append(f"🚨 Security vulnerability ({result.get('type')}) found in {file_path}")
+            else:
+                state["logs"].append(f"✅ {file_path} is safe.")
+                
+        except json.JSONDecodeError:
+             state["logs"].append(f"⚠️ Warning: LLM returned invalid JSON for {file_path}. Raw output: {clean_json_str}")
             
     except Exception as e:
         state["logs"].append(f"Error reading {file_path}: {str(e)}")

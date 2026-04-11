@@ -2,14 +2,29 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const testScan = async () => {
-    const API_URL = "http://localhost:3000/api/v1/scans/scan";
+    const PORT = process.env.PORT || 3001;
+    const API_URL = `http://localhost:${PORT}/api/v1/scans/scan`;
     
+    // Grab the 3rd argument from the terminal command
+    const inputUrl = process.argv[2];
+
+    if (!inputUrl) {
+        console.error("❌ Please provide a GitHub URL!");
+        console.log("Usage: npx ts-node src/modules/scripts/test-scan.ts <repo-url>");
+        process.exit(1);
+    }
+
+    // Automatically extract "username/repo" from "https://github.com/username/repo"
+    const cleanedUrl = inputUrl.replace(".git", "").replace(/\/$/, ""); // Clean trailing slashes
+    const parts = cleanedUrl.split("/");
+    const fullName = `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+
     const payload = {
-        github_url: "https://github.com/pallets/flask",
-        full_name: "pallets/flask"
+        github_url: cleanedUrl,
+        full_name: fullName
     };
 
-    console.log("🚀 Sending request to Sentinel-Zero API...");
+    console.log(`🚀 Sending request to API to scan: ${fullName}...`);
 
     try {
         const response = await fetch(API_URL, {

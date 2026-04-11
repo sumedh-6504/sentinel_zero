@@ -1,4 +1,7 @@
 node_modules/
 .env
 workers/venv/
-workers/__pycache__/
+workers/__pycache__
+# workers/__pycache__/sandbox.cpython-312.pyc
+
+.vscode

@@ -50,4 +50,35 @@ export class ScanService {
 
     return job;
   }
+
+  async submitHumanReview(vuln_id: string, decision: 'approved_real_bug' | 'rejected_false_positive', feedback: string = "") {
+    // 1. Update the database
+    const { data, error } = await supabase
+      .from('vulnerabilities')
+      .update({ 
+        human_review_status: decision,
+        human_feedback: feedback,
+        status: decision === 'rejected_false_positive' ? 'closed' : 'fixing' 
+      })
+      .eq('id', vuln_id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // 2. If approved, trigger Modal Phase 2 (The Fixer)
+    if (decision === 'approved_real_bug') {
+      const MODAL_FIX_WEBHOOK = "https://jb23cs163--sentinel-zero-worker-trigger-fix-webhook.modal.run";
+      
+      console.log(`🚀 Human Approved! Dispatching Fixer Agent for Vuln ${vuln_id}...`);
+      
+      fetch(MODAL_FIX_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vulnerability_id: vuln_id })
+      }).catch(err => console.error("❌ Modal Fix Trigger Failed:", err));
+    }
+
+    return data;
+  }
 }

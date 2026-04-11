@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { env } from './config/env';
-import { triggerScanHandler } from './modules/scans/scan.controller';
+import { triggerScanHandler, triggerReviewHandler } from './modules/scans/scan.controller';
 
 const app = express();
 
@@ -16,6 +16,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.post('/api/v1/scans/scan', triggerScanHandler);
+app.post('/api/v1/scans/review', triggerReviewHandler);
 
 // Catch-all 404
 app.use((req, res) => {

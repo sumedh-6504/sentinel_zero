@@ -5,6 +5,7 @@ import subprocess
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from brain import sentinel_brain
+from brain_fixer import sentinel_fixer
 
 # load local .env if running locally (for deployment)
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -14,8 +15,9 @@ load_dotenv(env_path)
 image = (
     modal.Image.debian_slim()
     .apt_install("git")
-    .pip_install("supabase", "python-dotenv", "fastapi[standard]", "langgraph", "langchain", "langchain-openai", "blaxel")
+    .pip_install("supabase", "python-dotenv", "fastapi[standard]", "langgraph", "langchain", "langchain-openai")
     .add_local_python_source("brain")
+    .add_local_python_source("brain_fixer")
 )
 
 app = modal.App("sentinel-zero-worker")
@@ -26,10 +28,10 @@ modal_secrets = modal.Secret.from_dict({
     "SUPABASE_URL": os.environ.get("SUPABASE_URL", ""),
     "SUPABASE_SERVICE_ROLE_KEY": os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
     "NEBIUS_API_KEY": os.environ.get("NEBIUS_API_KEY", ""),
-    "BL_API_KEY": os.environ.get("BLAXEL_API_KEY", ""), 
-    "BL_WORKSPACE": os.environ.get("BL_WORKSPACE", "sentinel-zero"),
-    "BL_ENABLE_OPENTELEMETRY": "true",
-    "BL_NAME": "sentinel-zero-worker"
+    "LANGCHAIN_TRACING_V2": "true",
+    "LANGCHAIN_API_KEY": os.environ.get("LANGCHAIN_API_KEY", ""),
+    "LANGCHAIN_PROJECT": os.environ.get("LANGCHAIN_PROJECT", "sentinel-zero"),
+    "LANGCHAIN_ENDPOINT": "https://api.smith.langchain.com"
 })
 
 # 3. The Core Worker Function
@@ -119,7 +121,51 @@ def trigger_scan_webhook(data: dict):
     clone_and_inspect.spawn(repo_url, job_id)
     return {"message": "Job received and processing in sandbox"}
 
-# 5. Local Entrypoint (For CLI Testing)
+# 5. Fixer Modal Agent
+@app.function(
+    image=image, 
+    volumes={"/repos": volume},
+    secrets=[modal_secrets],
+    timeout=600
+)
+def generate_and_save_fix(vuln_id: str):
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    supabase: Client = create_client(supabase_url, supabase_key)
+    
+    # 1. Fetch the vulnerability details from the DB
+    vuln = supabase.table("vulnerabilities").select("*").eq("id", vuln_id).execute().data[0]
+    
+    # 2. Read the vulnerable file from the Modal Volume
+    with open(vuln["file_path"], "r") as f:
+        original_code = f.read()
+        
+    # 3. Run the Fixer Agent
+    initial_state = {
+        "vuln_id": vuln_id,
+        "file_path": vuln["file_path"],
+        "original_code": original_code,
+        "ai_finding": vuln["description"],
+        "human_feedback": vuln["human_feedback"],
+        "fixed_code": ""
+    }
+    
+    final_state = sentinel_fixer.invoke(initial_state)
+    
+    # 4. Save the fix back to the database!
+    supabase.table("vulnerabilities").update({
+        "suggested_fix": final_state["fixed_code"],
+        "status": "fix_ready"
+    }).eq("id", vuln_id).execute()
+
+# The Webhook that TS calls
+@app.function(image=image)
+@modal.fastapi_endpoint(method="POST")
+def trigger_fix_webhook(data: dict):
+    generate_and_save_fix.spawn(data.get("vulnerability_id"))
+    return {"message": "Human approval received. Fixer Agent deployed."}
+
+# 6. Local Entrypoint (For CLI Testing)
 @app.local_entrypoint()
 def main(repo_url: str = "https://github.com/pallets/flask", job_id: str = "test-job"):
     print(f"🚀 Manually triggering scan for {repo_url}")
