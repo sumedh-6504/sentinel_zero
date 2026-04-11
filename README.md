@@ -5,6 +5,7 @@
 [![Modal](https://img.shields.io/badge/Modal-000000?style=for-the-badge&logo=serverless&logoColor=white)](#)
 [![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](#)
 [![LangGraph](https://img.shields.io/badge/LangGraph-FF4F00?style=for-the-badge&logo=langchain&logoColor=white)](#)
+[![Nebius AI](https://img.shields.io/badge/Nebius%20AI-04F0FF?style=for-the-badge)](#)
 
 Sentinel-Zero is an **autonomous, agentic AI security pipeline** designed to perform static code analysis and automated vulnerability remediation. Moving beyond simple AI wrappers, Sentinel-Zero utilizes state-machine-driven LLM agents (via LangGraph) running on highly scalable serverless GPUs (via Modal) to deeply analyze entire codebases, flag critical security flaws, and—with human-in-the-loop approval—generate safe, targeted code patches.
 
@@ -12,13 +13,12 @@ Sentinel-Zero is an **autonomous, agentic AI security pipeline** designed to per
 
 ## ✨ Key Features
 
-* **🌐 Automated Repository Ingestion**: Dynamically clones and safely mounts targeted GitHub repositories into isolated severless sandboxes.
-* **🧠 Multi-Agent Orchestration**: Utilizes a Two-Phase LangGraph architecture:
-  * **Phase 1 (The Scanner)**: Systematically walks the codebase, bypassing large dependencies, and uses strict-schema prompt engineering to identify specific exploit vectors (XSS, SQLi, IDOR, etc.).
-  * **Phase 2 (The Fixer)**: Ingests human code-review feedback alongside the vulnerable file to write a highly contextualized zero-day patch.
-* **⚡ Serverless Scaling**: Python AI workers are deployed on **Modal**, allowing the pipeline to scale instantly and handle massive enterprise monorepos without timeout constraints.
-* **📊 Enterprise Observability**: Fully instrumented with **LangSmith** to provide deep tracing of LLM reasoning, token usage, and graph states.
-* **👨‍💻 Human-in-the-Loop (HITL)**: Architecture ensures that AIs augment development rather than blindly modifying production code. AI remediation is strictly gated by human approval.
+*   **⚡ Ephemeral Source-Code Ingestion**: Efficiently clones targeted GitHub repositories into isolated, serverless environments using **Modal Shared Volumes**—bypassing traditional container instantiation overhead.
+*   **🧠 Stateful Agentic Orchestration**: Leverages **LangGraph** to manage a complex, multi-step state machine. Our agents don't just "predict"; they reason through codebases, manage scan states, and iteratively refine findings.
+*   **🔍 High-Precision Vulnerability Detection**: Uses a fine-tuned **Llama-3.3-70B** model on **Nebius AI** with strict schema-enforced analysis to eliminate hallucinations and prioritize real-world exploit vectors like SQLi and DOM-XSS.
+*   **🛠️ Automated Patch Generation (The Fixer)**: A secondary agent dedicated to remediation. It ingests original code, identified vulnerabilities, and human reviewer feedback to generate production-ready code patches.
+*   **🕵️ Full-Spectrum Observability**: Integrated with **LangSmith** for granular tracing of every LLM reasoning step. This allows for deep performance auditing and debugging of agentic state transitions.
+*   **🛡️ Human-Gated Remediation**: Implements a strict **Human-in-the-loop (HITL)** architecture. No AI-generated code is added to the system without explicit developer approval, ensuring safety and reliability.
 
 ---
 
