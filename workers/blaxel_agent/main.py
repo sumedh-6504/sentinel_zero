@@ -1,60 +1,46 @@
-import modal
 import os
 import shutil
 import subprocess
+from fastapi import FastAPI, BackgroundTasks
 from supabase import create_client, Client
 from dotenv import load_dotenv
-from brain import sentinel_brain
-from blaxel.telemetry import telemetry_manager
-import blaxel
 
-# load local .env if running locally (for deployment)
-env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+import blaxel
+from blaxel.telemetry import telemetry_manager
+
+# Ensure blaxel telemetry is initialized correctly with env variables
+blaxel.autoload()
+
+try:
+    from brain import sentinel_brain
+except ImportError:
+    from .brain import sentinel_brain
+
+# Load local .env for local testing
+env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 load_dotenv(env_path)
 
-# 1. Image Definition
-image = (
-    modal.Image.debian_slim()
-    .apt_install("git")
-    .pip_install("supabase", "python-dotenv", "fastapi[standard]", "langgraph", "langchain", "langchain-openai", "blaxel[telemetry]")
-    .add_local_python_source("brain")
-)
+app = FastAPI(title="Sentinel Zero Blaxel Agent")
 
-app = modal.App("sentinel-zero-worker")
-volume = modal.Volume.from_name("repo-storage", create_if_missing=True)
-
-# 2. Secrets (inject into Modal container)
-modal_secrets = modal.Secret.from_dict({
-    "SUPABASE_URL": os.environ.get("SUPABASE_URL", ""),
-    "SUPABASE_SERVICE_ROLE_KEY": os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
-    "NEBIUS_API_KEY": os.environ.get("NEBIUS_API_KEY", ""),
-    "BL_API_KEY": os.environ.get("BLAXEL_API_KEY", ""), 
-    "BL_WORKSPACE": os.environ.get("BL_WORKSPACE", "sentinel-zero"),
-    "BL_ENABLE_OPENTELEMETRY": "true",
-    "BL_NAME": "sentinel-agent"
-})
-
-# 3. The Core Worker Function
-@app.function(image=image, volumes={"/repos": volume}, secrets=[modal_secrets], timeout=600)
 def clone_and_inspect(repo_url: str, job_id: str):
-    # Force Blaxel to reload settings and initialize telemetry 
-    # now that Modal secrets are available in the environment
-    blaxel.autoload()
     
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     supabase: Client = create_client(supabase_url, supabase_key)
     
     repo_name = repo_url.split("/")[-1].replace(".git", "")
-    target_path = f"/repos/{repo_name}"
+    target_path = f"/tmp/repos/{repo_name}"
 
     try:
-        # Clean up existing repo
+        # Clean up existing repo inside ephemeral container
         if os.path.exists(target_path):
             print(f"Cleaning up existing path: {target_path}")
             shutil.rmtree(target_path)
+            
+        # Make sure directory exists
+        os.makedirs(target_path, exist_ok=True)
 
-        print(f"Cloning {repo_url}...")
+        print(f"Cloning {repo_url} into {target_path}...")
         
         # Execute Git Clone
         process = subprocess.run(["git", "clone", "--depth", "1", repo_url, target_path],
@@ -81,6 +67,7 @@ def clone_and_inspect(repo_url: str, job_id: str):
         }
         
         # Run the LangGraph Agent
+        # Telemetry is automatically propagated since we are inside a FastAPI route
         final_state = sentinel_brain.invoke(initial_state)
 
         # Send the findings back to Supabase
@@ -99,9 +86,6 @@ def clone_and_inspect(repo_url: str, job_id: str):
                 "status": "open"
             }).execute()
 
-        # Flush telemetry spans before exiting
-        telemetry_manager.shutdown()
-
         return {"status": "success", "bugs_found": len(final_state["vulnerabilities"])}
 
     except subprocess.CalledProcessError as e:
@@ -116,20 +100,12 @@ def clone_and_inspect(repo_url: str, job_id: str):
         
         return {"status": "error", "message": error_msg}
 
-# 4. The Webhook (For your TypeScript API)
-@app.function(image=image)
-@modal.fastapi_endpoint(method="POST")
-def trigger_scan_webhook(data: dict):
+
+@app.post("/")
+def trigger_scan_webhook(data: dict, background_tasks: BackgroundTasks):
     repo_url = data.get("repo_url")
     job_id = data.get("job_id")
     
-    # .spawn() runs the function in the background so the webhook returns a 200 OK instantly
-    clone_and_inspect.spawn(repo_url, job_id)
-    return {"message": "Job received and processing in sandbox"}
-
-# 5. Local Entrypoint (For CLI Testing)
-@app.local_entrypoint()
-def main(repo_url: str = "https://github.com/pallets/flask", job_id: str = "test-job"):
-    print(f"🚀 Manually triggering scan for {repo_url}")
-    # .remote() runs it synchronously so you can see the output in your terminal
-    clone_and_inspect.remote(repo_url, job_id)
+    # Spawn in the background instantly
+    background_tasks.add_task(clone_and_inspect, repo_url, job_id)
+    return {"message": "Job received and processing in background on Blaxel"}
