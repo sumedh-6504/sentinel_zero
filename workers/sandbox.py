@@ -5,6 +5,8 @@ import subprocess
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from brain import sentinel_brain
+from blaxel.telemetry import telemetry_manager
+import blaxel
 
 # load local .env if running locally (for deployment)
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -14,7 +16,7 @@ load_dotenv(env_path)
 image = (
     modal.Image.debian_slim()
     .apt_install("git")
-    .pip_install("supabase", "python-dotenv", "fastapi[standard]", "langgraph", "langchain", "langchain-openai")
+    .pip_install("supabase", "python-dotenv", "fastapi[standard]", "langgraph", "langchain", "langchain-openai", "blaxel[telemetry]")
     .add_local_python_source("brain")
 )
 
@@ -25,13 +27,20 @@ volume = modal.Volume.from_name("repo-storage", create_if_missing=True)
 modal_secrets = modal.Secret.from_dict({
     "SUPABASE_URL": os.environ.get("SUPABASE_URL", ""),
     "SUPABASE_SERVICE_ROLE_KEY": os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
-    "NEBIUS_API_KEY": os.environ.get("NEBIUS_API_KEY", "")
+    "NEBIUS_API_KEY": os.environ.get("NEBIUS_API_KEY", ""),
+    "BL_API_KEY": os.environ.get("BLAXEL_API_KEY", ""), 
+    "BL_WORKSPACE": os.environ.get("BL_WORKSPACE", "sentinel-zero"),
+    "BL_ENABLE_OPENTELEMETRY": "true",
+    "BL_NAME": "sentinel-zero-worker"
 })
 
 # 3. The Core Worker Function
 @app.function(image=image, volumes={"/repos": volume}, secrets=[modal_secrets], timeout=600)
 def clone_and_inspect(repo_url: str, job_id: str):
-    # Read from the container's environment (injected via secrets)
+    # Force Blaxel to reload settings and initialize telemetry 
+    # now that Modal secrets are available in the environment
+    blaxel.autoload()
+    
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     supabase: Client = create_client(supabase_url, supabase_key)
@@ -90,6 +99,9 @@ def clone_and_inspect(repo_url: str, job_id: str):
                 "status": "open"
             }).execute()
 
+        # Flush telemetry spans before exiting
+        telemetry_manager.shutdown()
+
         return {"status": "success", "bugs_found": len(final_state["vulnerabilities"])}
 
     except subprocess.CalledProcessError as e:
@@ -117,7 +129,7 @@ def trigger_scan_webhook(data: dict):
 
 # 5. Local Entrypoint (For CLI Testing)
 @app.local_entrypoint()
-def main(repo_url: str = "https://github.com/fastapi/fastapi", job_id: str = "test-job"):
+def main(repo_url: str = "https://github.com/pallets/flask", job_id: str = "test-job"):
     print(f"🚀 Manually triggering scan for {repo_url}")
     # .remote() runs it synchronously so you can see the output in your terminal
     clone_and_inspect.remote(repo_url, job_id)

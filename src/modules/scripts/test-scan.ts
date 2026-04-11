@@ -2,11 +2,11 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const testScan = async () => {
-    const API_URL = "http://127.0.0.1:3000/api/v1/scans/scan";
+    const API_URL = "http://localhost:3000/api/v1/scans/scan";
     
     const payload = {
-        github_url: "https://github.com/fastapi/fastapi",
-        full_name: "fastapi/fastapi"
+        github_url: "https://github.com/pallets/flask",
+        full_name: "pallets/flask"
     };
 
     console.log("🚀 Sending request to Sentinel-Zero API...");

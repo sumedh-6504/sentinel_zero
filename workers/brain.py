@@ -3,6 +3,7 @@ from typing import TypedDict, List
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
+import blaxel
 
 # ---------------------------------------------------------
 # 1. DEFINE THE MEMORY (The Agent's Clipboard)
