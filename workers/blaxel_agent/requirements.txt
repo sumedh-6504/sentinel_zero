@@ -1,7 +1,0 @@
-fastapi[standard]
-supabase
-python-dotenv
-langgraph
-langchain
-langchain-openai
-blaxel[telemetry]

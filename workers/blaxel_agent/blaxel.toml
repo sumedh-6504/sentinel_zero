@@ -1,8 +1,0 @@
-type = "agent"
-name = "sentinel-agent"
-
-[entrypoint]
-prod = "uvicorn main:app --host 0.0.0.0 --port $PORT"
-
-[runtime]
-memory = 1024
