@@ -7,17 +7,22 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-FF4F00?style=for-the-badge&logo=langchain&logoColor=white)](#)
 [![Nebius AI](https://img.shields.io/badge/Nebius%20AI-04F0FF?style=for-the-badge)](#)
 
-Sentinel-Zero is an **autonomous, agentic AI security pipeline** designed to perform static code analysis and automated vulnerability remediation. Moving beyond simple AI wrappers, Sentinel-Zero utilizes state-machine-driven LLM agents (via LangGraph) running on highly scalable serverless GPUs (via Modal) to deeply analyze entire codebases, flag critical security flaws, and—with human-in-the-loop approval—generate safe, targeted code patches.
+Sentinel-Zero is a **fully autonomous, agentic AI security pipeline** (Backend MVP) designed for automated vulnerability detection and remediation. By combining state-machine-driven agents (LangGraph) with elastic serverless compute (Modal), Sentinel-Zero moves beyond basic scanning by generating and deploying production-ready code patches via GitHub Pull Requests.
 
 ---
 
 ## ✨ Key Features
 
 *   **⚡ Ephemeral Source-Code Ingestion**: Efficiently clones targeted GitHub repositories into isolated, serverless environments using **Modal Shared Volumes**—bypassing traditional container instantiation overhead.
+
 *   **🧠 Stateful Agentic Orchestration**: Leverages **LangGraph** to manage a complex, multi-step state machine. Our agents don't just "predict"; they reason through codebases, manage scan states, and iteratively refine findings.
+
 *   **🔍 High-Precision Vulnerability Detection**: Uses a fine-tuned **Llama-3.3-70B** model on **Nebius AI** with strict schema-enforced analysis to eliminate hallucinations and prioritize real-world exploit vectors like SQLi and DOM-XSS.
-*   **🛠️ Automated Patch Generation (The Fixer)**: A secondary agent dedicated to remediation. It ingests original code, identified vulnerabilities, and human reviewer feedback to generate production-ready code patches.
-*   **🕵️ Full-Spectrum Observability**: Integrated with **LangSmith** for granular tracing of every LLM reasoning step. This allows for deep performance auditing and debugging of agentic state transitions.
+
+*   **🚀 Autonomous Remediation (Phase 5)**: The "End-to-End" loop. Once a fix is verified, the agent uses **Octokit** to autonomously fork the target repository, create a dedicated security branch, commit the patch, and open a Pull Request (PR) against the upstream repository.
+
+*   **🕵️ Full-Spectrum Observability**: Integrated with **LangSmith** for granular tracing of every LLM reasoning step. Every Pull Request includes a link to the unique AI reasoning trace, providing developers with full transparency on *why* a fix was generated.
+
 *   **🛡️ Human-Gated Remediation**: Implements a strict **Human-in-the-loop (HITL)** architecture. No AI-generated code is added to the system without explicit developer approval, ensuring safety and reliability.
 
 ---
@@ -100,9 +105,9 @@ npx ts-node src/modules/scripts/test-scan.ts https://github.com/psf/requests
 ---
 
 ## 🔮 Future Roadmap
-- [ ] **Git Operations Integration**: Grant the Fixer Agent the ability to autonomously create Git Branches and submit standard GitHub Pull Requests.
-- [ ] **Frontend Application**: Complete a robust React/Next.js dashboard to visualize findings.
+- [ ] **Interactive Frontend Dashboard**: Complete the React/Next.js "Control Center" for real-time scan visualization and one-click remediation approval.
 - [ ] **AST Parsing**: Move beyond Regex/Text splitting and implement precise Abstract Syntax Tree (AST) parsing for targeted line-by-line remediation.
+- [ ] **GitHub Webhook Sync**: Listen for PR merges to automatically close vulnerabilities in the database.
 
 ---
 *Built by Sumedh-6504. Designed to show the power of Serverless Stateful Agents.*

@@ -1,4 +1,5 @@
 import { supabase } from '../../db/supabase';
+import { GithubService } from '../github/github.service';
 
 export class ScanService {
   async createScanJob(data: { github_url: string; full_name: string }) {
@@ -80,5 +81,45 @@ export class ScanService {
     }
 
     return data;
+  }
+
+  async deployPullRequest(vulnId: string) {
+    // 1. Get the Vulnerability and Repo details from Supabase
+    const { data: vuln, error } = await supabase
+      .from('vulnerabilities')
+      .select('*, scan_jobs(repositories(*))')
+      .eq('id', vulnId)
+      .single();
+
+    if (error || !vuln) throw new Error("Vulnerability not found");
+    if (vuln.status !== 'fix_ready') throw new Error("Fix is not ready yet.");
+
+    // Parse the repo full name (e.g., "fastapi/fastapi" -> owner="fastapi", repo="fastapi")
+    const fullName = vuln.scan_jobs.repositories.full_name;
+    const [owner, repo] = fullName.split('/');
+
+    // Clean the file path (Modal prefix /repos/repo_name/ must be stripped)
+    const relativeFilePath = vuln.file_path.replace(/^\/repos\/[^\/]+\//, '');
+
+    // 2. Initialize GitHub Service and deploy!
+    const githubService = new GithubService();
+    console.log(`🚀 Opening PR on ${fullName}...`);
+    
+    const prUrl = await githubService.createFixPullRequest(
+      owner,
+      repo,
+      relativeFilePath,
+      vuln.suggested_fix,
+      vulnId,
+      vuln.description
+    );
+
+    // 3. Update DB with the success
+    await supabase.from('vulnerabilities').update({
+      status: 'pr_opened',
+      github_issue_url: prUrl
+    }).eq('id', vulnId);
+
+    return { success: true, pr_url: prUrl };
   }
 }

@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import { env } from './config/env';
 import { triggerScanHandler, triggerReviewHandler } from './modules/scans/scan.controller';
+import { ScanService } from './modules/scans/scan.service';
 
+const scanService = new ScanService();
 const app = express();
 
 // Middleware
@@ -17,6 +19,14 @@ app.use((req, res, next) => {
 // Routes
 app.post('/api/v1/scans/scan', triggerScanHandler);
 app.post('/api/v1/scans/review', triggerReviewHandler);
+app.post('/api/v1/scans/deploy-pr/:vulnId', async (req, res) => {
+  try {
+    const result = await scanService.deployPullRequest(req.params.vulnId);
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
 
 // Catch-all 404
 app.use((req, res) => {

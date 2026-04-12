@@ -158,6 +158,11 @@ def generate_and_save_fix(vuln_id: str):
         "status": "fix_ready"
     }).eq("id", vuln_id).execute()
 
+    # 5. TRIGGER THE PR AUTOMATICALLY (The "Autonomous" Flex)
+    # Instead of waiting for a human, we call the TS API's endpoint internally
+    import requests
+    requests.post(f"http://localhost:3001/api/v1/scans/deploy-pr/{vuln_id}")
+
 # The Webhook that TS calls
 @app.function(image=image)
 @modal.fastapi_endpoint(method="POST")
