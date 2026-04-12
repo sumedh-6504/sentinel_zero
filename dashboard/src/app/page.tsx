@@ -6,6 +6,7 @@ import {
   StatSummary, 
   Vulnerability 
 } from "@/lib/api";
+import { createClient } from "@/utils/supabase/client";
 import { StatCard } from "@/components/StatCard";
 import { 
   ShieldAlert, 
@@ -22,23 +23,56 @@ export default function DashboardPage() {
   const [recentVulns, setRecentVulns] = useState<Vulnerability[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const [s, v] = await Promise.all([
-          SentinelClient.getStats(),
-          SentinelClient.listVulnerabilities()
-        ]);
-        setStats(s);
-        setRecentVulns(v.slice(0, 5));
-      } catch (err) {
-        console.error("Failed to load dashboard data:", err);
-      } finally {
-        setIsLoading(false);
-      }
+  const supabase = createClient();
+
+  const loadData = async () => {
+    try {
+      const [s, v] = await Promise.all([
+        SentinelClient.getStats(),
+        SentinelClient.listVulnerabilities()
+      ]);
+      setStats(s);
+      setRecentVulns(v.slice(0, 5));
+    } catch (err) {
+      console.error("Failed to load dashboard data:", err);
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  useEffect(() => {
     loadData();
-  }, []);
+
+    const channel = supabase
+      .channel("dashboard-pulse")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "vulnerabilities",
+        },
+        () => {
+          loadData();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "scan_jobs",
+        },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase]);
 
   if (isLoading) {
     return (

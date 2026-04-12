@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { SentinelClient } from "@/lib/api";
+import { createClient } from "@/utils/supabase/client";
 import { 
   Search, 
   Terminal as TerminalIcon, 
@@ -16,6 +17,48 @@ export default function ScanPage() {
   const [url, setUrl] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [status, setStatus] = useState<string[]>([]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const supabase = createClient();
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (terminalEndRef.current) {
+      terminalEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [status]);
+
+  useEffect(() => {
+    if (!activeJobId) return;
+
+    const channel = supabase
+      .channel(`scan-job-${activeJobId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "scan_jobs",
+          filter: `id=eq.${activeJobId}`,
+        },
+        (payload) => {
+          const newStatus = payload.new.status;
+          setStatus(prev => [...prev, `[SYSTEM] Remote state transition: ${newStatus.toUpperCase()}`]);
+          
+          if (newStatus === "completed") {
+            setStatus(prev => [...prev, "[SUCCESS] Security analysis engine finished duty.", "[INFO] Vulnerability records published to inventory."]);
+            setIsScanning(false);
+          } else if (newStatus === "failed") {
+            setStatus(prev => [...prev, "[ERROR] Analysis engine encountered a fatal fault."]);
+            setIsScanning(false);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeJobId, supabase]);
 
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,8 +75,9 @@ export default function ScanPage() {
       const repoName = url.split("github.com/")[1]?.split("/").slice(0, 2).join("/") || "generic-repo";
       
       const res = await SentinelClient.triggerScan(url, repoName);
+      setActiveJobId(res.id);
       
-      setStatus(prev => [...prev, `[SUCCESS] Job created: ${res.id}`, "[INFO] Modal Webhook dispatched. Scan in progress..."]);
+      setStatus(prev => [...prev, `[SUCCESS] Remote Job ID: ${res.id}`, "[INFO] Modal Webhook dispatched. Watching remote state..."]);
     } catch (err: any) {
       setStatus(prev => [...prev, `[ERROR] Failed to trigger scan: ${err.message}`]);
     } finally {
@@ -116,6 +160,7 @@ export default function ScanPage() {
               </motion.div>
             ))}
           </AnimatePresence>
+          <div ref={terminalEndRef} />
           {status.length === 0 && (
             <div className="flex items-center justify-center h-full text-slate-700 italic pt-20">
               Awaiting target ingestion...

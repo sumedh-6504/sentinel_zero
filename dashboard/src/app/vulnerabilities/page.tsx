@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { SentinelClient, Vulnerability } from "@/lib/api";
+import { createClient } from "@/utils/supabase/client";
 import { 
   Bug, 
   AlertCircle, 
@@ -19,19 +20,43 @@ export default function VulnerabilitiesPage() {
   const [filter, setFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const data = await SentinelClient.listVulnerabilities();
-        setVulns(data);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-      }
+  const supabase = createClient();
+
+  const loadVulns = useCallback(async () => {
+    try {
+      const data = await SentinelClient.listVulnerabilities();
+      setVulns(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoading(false);
     }
-    load();
   }, []);
+
+  useEffect(() => {
+    loadVulns();
+
+    // Subscribe to realtime changes
+    const channel = supabase
+      .channel("vulnerabilities-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "vulnerabilities",
+        },
+        () => {
+          // Re-load list when changes occur
+          loadVulns();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, loadVulns]);
 
   const filteredVulns = vulns.filter(v => 
     (v.issue_type || "").toLowerCase().includes(filter.toLowerCase()) ||

@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { env } from './config/env';
 import { 
@@ -9,6 +9,7 @@ import {
   getStatsHandler 
 } from './modules/scans/scan.controller';
 import { ScanService } from './modules/scans/scan.service';
+import { verifySupabaseToken, AuthRequest } from './middleware/auth';
 
 const scanService = new ScanService();
 const app = express();
@@ -22,22 +23,24 @@ app.use((req, res, next) => {
     next();
 });
 
-// Routes
-app.post('/api/v1/scans/scan', triggerScanHandler);
-app.post('/api/v1/scans/review', triggerReviewHandler);
-app.post('/api/v1/scans/deploy-pr/:vulnId', async (req, res) => {
+// New Dashboard Routes - All protected by Supabase Auth
+app.use('/api/v1/scans', verifySupabaseToken);
+
+app.post('/api/v1/scans/scan', triggerScanHandler as any);
+app.post('/api/v1/scans/review', triggerReviewHandler as any);
+app.get('/api/v1/scans/vulnerabilities', listVulnerabilitiesHandler as any);
+app.get('/api/v1/scans/vulnerabilities/:id', getVulnerabilityHandler as any);
+app.get('/api/v1/scans/stats', getStatsHandler as any);
+app.post('/api/v1/scans/deploy-pr/:vulnId', async (req: Request, res: Response) => {
   try {
-    const result = await scanService.deployPullRequest(req.params.vulnId);
+    const authReq = req as AuthRequest;
+    if (!authReq.user) return res.status(401).json({ error: "Unauthorized" });
+    const result = await scanService.deployPullRequest(req.params.vulnId as string, authReq.user.id);
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 });
-
-// New Dashboard Routes
-app.get('/api/v1/scans/vulnerabilities', listVulnerabilitiesHandler);
-app.get('/api/v1/scans/vulnerabilities/:id', getVulnerabilityHandler);
-app.get('/api/v1/scans/stats', getStatsHandler);
 
 // Catch-all 404
 app.use((req, res) => {

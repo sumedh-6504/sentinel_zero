@@ -2,7 +2,7 @@ import { supabase } from '../../db/supabase';
 import { GithubService } from '../github/github.service';
 
 export class ScanService {
-  async createScanJob(data: { github_url: string; full_name: string }) {
+  async createScanJob(data: { github_url: string; full_name: string }, userId: string) {
     // 1. Get or Create Repository
     const { data: repo, error: repoError } = await supabase
       .from('repositories')
@@ -25,7 +25,8 @@ export class ScanService {
       .from('scan_jobs')
       .insert({ 
         repo_id: repo.id, 
-        status: 'queued' 
+        status: 'queued',
+        user_id: userId
       })
       .select()
       .single();
@@ -52,8 +53,18 @@ export class ScanService {
     return job;
   }
 
-  async submitHumanReview(vuln_id: string, decision: 'approved_real_bug' | 'rejected_false_positive', feedback: string = "") {
-    // 1. Update the database
+  async submitHumanReview(vuln_id: string, decision: 'approved_real_bug' | 'rejected_false_positive', feedback: string = "", userId: string) {
+    // 1. Verify ownership
+    const { data: vuln, error: checkError } = await supabase
+      .from('vulnerabilities')
+      .select('id, scan_jobs!inner(user_id)')
+      .eq('id', vuln_id)
+      .eq('scan_jobs.user_id', userId)
+      .single();
+
+    if (checkError || !vuln) throw new Error("Vulnerability not found or access denied.");
+
+    // 2. Update the database
     const { data, error } = await supabase
       .from('vulnerabilities')
       .update({ 
@@ -83,12 +94,13 @@ export class ScanService {
     return data;
   }
 
-  async deployPullRequest(vulnId: string) {
-    // 1. Get the Vulnerability and Repo details from Supabase
+  async deployPullRequest(vulnId: string, userId: string) {
+    // 1. Get the Vulnerability and Repo details from Supabase with ownership check
     const { data: vuln, error } = await supabase
       .from('vulnerabilities')
-      .select('*, scan_jobs(repositories(*))')
+      .select('*, scan_jobs!inner(user_id, repositories(*))')
       .eq('id', vulnId)
+      .eq('scan_jobs.user_id', userId)
       .single();
 
     if (error || !vuln) throw new Error("Vulnerability not found");
@@ -123,44 +135,51 @@ export class ScanService {
     return { success: true, pr_url: prUrl };
   }
 
-  async getAllVulnerabilities() {
+  async getAllVulnerabilities(userId: string) {
     const { data, error } = await supabase
       .from('vulnerabilities')
-      .select('*, scan_jobs(repositories(*))')
+      .select('*, scan_jobs!inner(repositories(*))')
+      .eq('scan_jobs.user_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
     return data;
   }
 
-  async getVulnerabilityById(id: string) {
+  async getVulnerabilityById(id: string, userId: string) {
     const { data, error } = await supabase
       .from('vulnerabilities')
-      .select('*, scan_jobs(repositories(*))')
+      .select('*, scan_jobs!inner(repositories(*))')
       .eq('id', id)
+      .eq('scan_jobs.user_id', userId)
       .single();
 
     if (error) throw error;
     return data;
   }
 
-  async getStats() {
+  async getStats(userId: string) {
     const { data: vulns, error: vError } = await supabase
       .from('vulnerabilities')
-      .select('status, severity');
+      .select('status, severity, scan_jobs!inner(user_id)')
+      .eq('scan_jobs.user_id', userId);
     
-    const { count: repoCount, error: rError } = await supabase
-      .from('repositories')
-      .select('*', { count: 'exact', head: true });
-
+    // Count distinct repositories scanned by this user
+    const { data: userJobs, error: rError } = await supabase
+      .from('scan_jobs')
+      .select('repo_id')
+      .eq('user_id', userId);
+    
     if (vError || rError) throw vError || rError;
+
+    const uniqueRepos = new Set(userJobs?.map(j => j.repo_id) || []);
 
     const stats = {
       total_vulnerabilities: vulns.length,
       critical: vulns.filter(v => v.severity?.toLowerCase() === 'critical').length,
       high: vulns.filter(v => v.severity?.toLowerCase() === 'high').length,
       fixed: vulns.filter(v => v.status === 'pr_opened' || v.status === 'closed').length,
-      repositories: repoCount || 0
+      repositories: uniqueRepos.size
     };
 
     return stats;

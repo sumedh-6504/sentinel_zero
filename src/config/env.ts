@@ -6,7 +6,7 @@ dotenv.config();
 const envSchema = z.object({
     PORT: z.string().default("3001"),
     NODE_ENV: z.enum(['development', 'production']).default('development'),
-    SUPABASE_URL: z.string().url(),
+    SUPABASE_URL: z.string(),
     SUPABASE_SERVICE_ROLE_KEY: z.string(),
     NEBIUS_API_KEY: z.string(),
     BLAXEL_API_KEY: z.string(),

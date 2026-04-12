@@ -1,4 +1,5 @@
-import axios from "axios";
+import { createClient } from "@/utils/supabase/client";
+import axios from "axios"
 
 const API_BASE_URL = "http://localhost:3001/api/v1";
 
@@ -7,6 +8,27 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+});
+
+// Add interceptor to inject Supabase JWT
+api.interceptors.request.use(async (config) => {
+  try {
+    const supabase = createClient();
+    
+    // Use getUser() instead of getSession() for more reliability in the interceptor
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (session?.access_token) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
+    } else {
+      // If no session, the backend will return 401, which is handled by the UI
+      console.warn("Axios interceptor: No active session found for request", config.url);
+    }
+  } catch (err) {
+    console.error("Error in Axios interceptor:", err);
+  }
+  
+  return config;
 });
 
 export interface StatSummary {

@@ -8,8 +8,13 @@ import {
   Search, 
   AlertTriangle, 
   History, 
-  Settings 
+  Settings,
+  LogOut,
+  User as UserIcon
 } from "lucide-react";
+import { createClient } from "@/utils/supabase/client";
+import { useEffect, useState } from "react";
+import { User } from "@supabase/supabase-js";
 
 const navItems = [
   { name: "Overview", icon: LayoutDashboard, href: "/" },
@@ -19,6 +24,21 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [user, setUser] = useState<User | null>(null);
+  const supabase = createClient();
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+    };
+    getUser();
+  }, [supabase]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    window.location.href = "/login";
+  };
 
   return (
     <div className="w-64 h-screen glass border-r border-white/10 flex flex-col fixed left-0 top-0">
@@ -51,8 +71,33 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-white/5 mx-2 mb-4">
-        <button className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-slate-100 transition-colors">
+      {/* User Logic */}
+      <div className="p-4 space-y-2 border-t border-white/5 mx-2 mb-4">
+        {user && (
+          <div className="flex items-center gap-3 px-4 py-3 mb-2 bg-white/5 rounded-xl border border-white/5">
+            <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30">
+              {user.user_metadata.avatar_url ? (
+                <img src={user.user_metadata.avatar_url} alt="User" className="w-full h-full rounded-full" />
+              ) : (
+                <UserIcon className="w-4 h-4 text-cyan-400" />
+              )}
+            </div>
+            <div className="flex flex-col overflow-hidden">
+              <span className="text-sm font-bold text-slate-100 truncate">{user.user_metadata.user_name || user.email?.split('@')[0]}</span>
+              <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Operator</span>
+            </div>
+          </div>
+        )}
+
+        <button 
+          onClick={handleLogout}
+          className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-red-400 hover:bg-red-500/5 rounded-xl transition-all"
+        >
+          <LogOut className="w-5 h-5" />
+          <span className="font-medium">Terminate Session</span>
+        </button>
+        
+        <button className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-slate-100 hover:bg-white/5 rounded-xl transition-all">
           <Settings className="w-5 h-5" />
           <span className="font-medium">Settings</span>
         </button>
