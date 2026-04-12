@@ -1,7 +1,13 @@
 import express from 'express';
 import cors from 'cors';
 import { env } from './config/env';
-import { triggerScanHandler, triggerReviewHandler } from './modules/scans/scan.controller';
+import { 
+  triggerScanHandler, 
+  triggerReviewHandler, 
+  listVulnerabilitiesHandler, 
+  getVulnerabilityHandler, 
+  getStatsHandler 
+} from './modules/scans/scan.controller';
 import { ScanService } from './modules/scans/scan.service';
 
 const scanService = new ScanService();
@@ -27,6 +33,11 @@ app.post('/api/v1/scans/deploy-pr/:vulnId', async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 });
+
+// New Dashboard Routes
+app.get('/api/v1/scans/vulnerabilities', listVulnerabilitiesHandler);
+app.get('/api/v1/scans/vulnerabilities/:id', getVulnerabilityHandler);
+app.get('/api/v1/scans/stats', getStatsHandler);
 
 // Catch-all 404
 app.use((req, res) => {

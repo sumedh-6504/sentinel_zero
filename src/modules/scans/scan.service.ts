@@ -122,4 +122,47 @@ export class ScanService {
 
     return { success: true, pr_url: prUrl };
   }
+
+  async getAllVulnerabilities() {
+    const { data, error } = await supabase
+      .from('vulnerabilities')
+      .select('*, scan_jobs(repositories(*))')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getVulnerabilityById(id: string) {
+    const { data, error } = await supabase
+      .from('vulnerabilities')
+      .select('*, scan_jobs(repositories(*))')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getStats() {
+    const { data: vulns, error: vError } = await supabase
+      .from('vulnerabilities')
+      .select('status, severity');
+    
+    const { count: repoCount, error: rError } = await supabase
+      .from('repositories')
+      .select('*', { count: 'exact', head: true });
+
+    if (vError || rError) throw vError || rError;
+
+    const stats = {
+      total_vulnerabilities: vulns.length,
+      critical: vulns.filter(v => v.severity?.toLowerCase() === 'critical').length,
+      high: vulns.filter(v => v.severity?.toLowerCase() === 'high').length,
+      fixed: vulns.filter(v => v.status === 'pr_opened' || v.status === 'closed').length,
+      repositories: repoCount || 0
+    };
+
+    return stats;
+  }
 }

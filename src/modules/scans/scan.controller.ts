@@ -57,3 +57,31 @@ export const deployPullRequestHandler = async (req: Request, res: Response) => {
         return res.status(500).json({ error: error.message });
     }
 };
+
+export const listVulnerabilitiesHandler = async (req: Request, res: Response) => {
+    try {
+        const data = await scanService.getAllVulnerabilities();
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const getVulnerabilityHandler = async (req: Request, res: Response) => {
+    try {
+        const id = req.params.id as string;
+        const data = await scanService.getVulnerabilityById(id);
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const getStatsHandler = async (req: Request, res: Response) => {
+    try {
+        const data = await scanService.getStats();
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
