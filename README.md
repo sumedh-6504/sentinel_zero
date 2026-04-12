@@ -24,7 +24,7 @@ Sentinel-Zero is an **autonomous, agentic AI security pipeline** designed to per
 
 ## 🏗️ System Architecture
 
-![Sentinel-Zero Pipeline Architecture](https://app.eraser.io/workspace/kSVn0IOp5bZgDmAFQBwl?elements=cGuhCbKPTHcU-F6cSIbJGw)
+https://app.eraser.io/workspace/kSVn0IOp5bZgDmAFQBwl?elements=cGuhCbKPTHcU-F6cSIbJGw
 > *A flow diagram showing the Express Backend communicating with Supabase, dispatching serverless triggers to Modal, and the LangGraph agents reading physical code to update the database.*
 
 ### Tech Stack
@@ -44,7 +44,7 @@ Sentinel-Zero is an **autonomous, agentic AI security pipeline** designed to per
 > *The central hub where engineers can view scanned vulnerabilities and provide HITL feedback.*
 
 ### 2. LangSmith Trace (Agentic Reasoning)
-![LangSmith Telemetry Placeholder](https://smith.langchain.com/public/2e86e1af-d88e-4a7b-a18a-f17be7d24fcc/r)
+https://smith.langchain.com/public/2e86e1af-d88e-4a7b-a18a-f17be7d24fcc/r
 > *Deep observability showing the LangGraph state machine tracking agent execution steps.*
 
 ---
