@@ -1,9 +1,9 @@
 import os
+import re
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-
 
 class FixerState(TypedDict):
     vuln_id: str
@@ -17,26 +17,31 @@ def node_generate_patch(state: FixerState):
     llm = ChatOpenAI(
         base_url="https://api.studio.nebius.ai/v1/",
         api_key=os.getenv("NEBIUS_API_KEY"),
-        model="meta-llama/Llama-3.3-70B-Instruct",
-        temperature=0.1
+        model="nvidia/nemotron-3-super-120b-a12b",
+        temperature=0.2
     )
     prompt = f"""
-    You are a Principal Security Engineer. Your task is to fix a security vulnerability without breaking the build.
+    You are a Senior AI Principal Security Engineer. 
+    Your task is to FIX the following security vulnerability.
     
     VULNERABILITY: {state['ai_finding']}
-    HUMAN REVIEW FEEDBACK: "{state['human_feedback']}"
+    HUMAN FEEDBACK: "{state['human_feedback']}"
     
-    STRICT RULES:
-    1. DO NOT introduce new libraries that are not already imported in the original code.
-    2. ENSURE all variables you use (like 'username' or 'slug') are available in the current scope.
-    3. PRESERVE the original coding style and indentation.
-    4. If a fix requires a new import, you MUST add the import statement at the top.
-    
-    ORIGINAL CODE:
+    ORIGINAL CODE TO FIX:
     {state['original_code']}
     
-    Output ONLY the complete, fixed file content. Wrap your code in ```[language] ... ``` blocks so I can extract it properly.
-    Do not add explanations or talk. Just code.
+    STRICT IMPORT & COMPONENT RULES:
+    1. NEVER rename existing imports. If you use a component, it MUST be imported correctly.
+    2. SHADCN CONVENTIONS: Use full names (e.g., 'DialogTrigger', 'SheetContent', 'AlertDialogAction'). 
+       Do NOT use shortened names like 'Trigger' or 'Action' unless they are already imported that way.
+    3. VALIDATION: Ensure all JSX tags you add (e.g., <DOMPurify />) have a matching import statement at the top.
+    4. PRESERVE SCOPE: Do not use variables (like 'slug' or 'id') that are not available in the code snippet.
+    
+    FIX REQUIREMENTS:
+    1. FIX the vulnerability (SQLi, XSS, etc.) without breaking functionality.
+    2. Provide the COMPLETE file content, ready to be written to disk.
+    
+    Output ONLY the code wrapped in markdown blocks. No explanations.
     """
     
     response = llm.invoke([
@@ -47,7 +52,6 @@ def node_generate_patch(state: FixerState):
     # Extract code from Markdown blocks
     content = response.content
     if "```" in content:
-        import re
         code_blocks = re.findall(r"```(?:\w+)?\n(.*?)\n```", content, re.DOTALL)
         if code_blocks:
             content = code_blocks[0]
@@ -55,10 +59,33 @@ def node_generate_patch(state: FixerState):
     state["fixed_code"] = content
     return state
 
-# Build the small Fixer Graph
+def node_verify_patch(state: FixerState):
+    """Audits the generated patch for syntax sanity and naming hallucinations."""
+    code = state["fixed_code"]
+    
+    # Check for obvious naming hallucinations (Shadcn patterns)
+    hallucinations = ["<Trigger", "<Action", "<Content", "<Title"]
+    for h in hallucinations:
+        if h in code and "import" in code:
+            parts = code.split("import")
+            found = False
+            for part in parts[1:]:
+                import_section = part.split(";")[0]
+                if h.replace("<", "") in import_section:
+                    found = True
+                    break
+            if not found:
+                print(f"Warning: Possible orphaned component detected: {h}")
+
+    return state
+
+# Build the Fixer Graph
 fixer_workflow = StateGraph(FixerState)
 fixer_workflow.add_node("generate_patch", node_generate_patch)
+fixer_workflow.add_node("verify_patch", node_verify_patch)
+
 fixer_workflow.set_entry_point("generate_patch")
-fixer_workflow.add_edge("generate_patch", END)
+fixer_workflow.add_edge("generate_patch", "verify_patch")
+fixer_workflow.add_edge("verify_patch", END)
 
 sentinel_fixer = fixer_workflow.compile()

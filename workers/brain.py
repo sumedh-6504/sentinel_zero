@@ -18,94 +18,157 @@ class AgentState(TypedDict):
 # 3. DEFINE THE NODES (The Factory Rooms)
 # ---------------------------------------------------------
 
+import json
+import re
+
+# Elite Language-Specific Security Patterns
+EXTENSION_PATTERNS = {
+    ".py": [
+        r"eval\(", r"exec\(", r"os\.system", r"subprocess\.(?:run|call|Popen|check_output)",  # Code/Command Injection
+        r"pickle\.load", r"yaml\.(?:load|unsafe_load)", r"getattr\(", r"setattr\(",             # Insecure Deserialization
+        r"cursor\.execute\(.*f?[\"\'].*\{", r"db\.execute\(.*f?[\"\'].*\{",                   # SQLi in Python
+        r"SECRET_KEY\s*=", r"PASSWORD\s*=", r"API_KEY\s*="                                   # Secrets
+    ],
+    ".js": [
+        r"innerHTML", r"document\.write\(", r"dangerouslySetInnerHTML",                      # XSS
+        r"eval\(", r"new Function\(", r"setTimeout\(.*[\"\'].*\(",                           # Code Injection
+        r"localStorage\.setItem\(", r"sessionStorage\.setItem\(",                            # Insecure Storage
+        r"postMessage\(", r"window\.location", r"XMLHttpRequest", r"fetch\(.*http:"         # Comms
+    ],
+    ".jsx": [
+         r"dangerouslySetInnerHTML", r"eval\(", r"innerHTML",                                # React XSS
+         r"api[-_]?key", r"secret", r"password"                                              # Sensitive data in JSX
+    ],
+    ".ts": [
+        r"innerHTML", r"dangerouslySetInnerHTML", r"eval\(", r"new Function\(",              # JS Vulns
+        r"as any", r"interface.*\{.*\[key: string\]: any",                                    # Type bypass
+        r"process\.env\.", r"SECRET", r"TOKEN", r"KEY"                                       # Environment
+    ],
+    ".tsx": [
+         r"dangerouslySetInnerHTML", r"eval\(", r"innerHTML",                                # React/TS XSS
+         r"as any", r"api[-_]?key", r"token"                                                  # TSX specific
+    ],
+    ".env": [
+        r"AWS_", r"STRIPE_", r"SUPABASE_", r"DATABASE_URL", r"JWT_SECRET",                   # Cloud Keys
+        r"PASSWORD", r"TOKEN", r"SECRET", r"KEY", r"PRIVATE"                                 # Generic Secrets
+    ],
+    "global": [
+        r"eval\(", r"exec\(", r"system\(", r"chmod", r"chown", r"sudo",                      # Command Injection
+        r"api[-_]?key", r"secret", r"password", r"TOKEN"                                     # Universal Secrets
+    ]
+}
+
+def is_potentially_vulnerable(code: str, file_path: str) -> bool:
+    """Uses Language-Aware patterns to perform a high-speed pre-audit."""
+    _, ext = os.path.splitext(file_path.lower())
+    patterns = EXTENSION_PATTERNS.get(ext, EXTENSION_PATTERNS["global"])
+    
+    # Merge with global patterns for maximum safety
+    all_patterns = list(set(patterns + EXTENSION_PATTERNS["global"]))
+        
+    for pattern in all_patterns:
+        if re.search(pattern, code, re.IGNORECASE):
+            return True
+    return False
+
 def node_gather_files(state: AgentState):
     """Finds all Python/JS/TS files in the cloned repo, ignoring dependencies."""
-    state["logs"].append("Gathering files to scan...")
+    state["logs"].append("Gathering files and applying first-pass filters...")
     target_files = []
     
-    # Directories we DO NOT want to scan
-    ignore_dirs = {".git", "node_modules", "venv", "__pycache__", "dist", "build"}
+    ignore_dirs = {".git", "node_modules", "venv", "__pycache__", "dist", "build", ".next", ".cache"}
     
     for root, dirs, files in os.walk(state["repo_path"]):
-        # Modify the 'dirs' list in-place to prevent os.walk from entering ignored directories
         dirs[:] = [d for d in dirs if d not in ignore_dirs]
         
         for file in files:
-            if file.endswith((".py", ".ts", ".js", ".tsx", ".jsx")):
+            if file.endswith((".py", ".ts", ".js", ".tsx", ".jsx", ".env")):
                 target_files.append(os.path.join(root, file))
     
-    # Remove the `[:3]` slice so it scans ALL valid files!
     state["files_to_scan"] = target_files
-    state["logs"].append(f"Found {len(target_files)} source files to scan.")
+    state["logs"].append(f"Discovered {len(target_files)} core source files.")
     return state
 
 
-import json # Make sure to add 'import json' at the very top of brain.py
+import concurrent.futures
 
 def node_analyze_code(state: AgentState):
-    """Reads a file and asks Nebius if it is vulnerable using the user's specific prompt."""
+    """Processes a batch of files using a Hybrid Regex filter and Unified LLM Batching."""
     idx = state["current_file_index"]
-    file_path = state["files_to_scan"][idx]
+    batch_files = state["files_to_scan"][idx : idx + 10] # Batch up to 10 for better trace grouping
+    nebius_key = os.getenv("NEBIUS_API_KEY")
     
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            code_content = f.read()
-            
-        prompt = f"""
-    You are an elite Application Security Engineer performing static analysis.
-    Analyze the following code for critical vulnerabilities (SQL Injection, XSS, Path Traversal, Hardcoded Secrets, Command Injection).
+    state["logs"].append(f"🔍 Analyzing batch of {len(batch_files)} files...")
     
-    RULES:
-    1. Ignore best-practice warnings (e.g., missing docstrings) or minor linting issues.
-    2. Focus ONLY on exploitable security flaws.
-    3. You must respond ONLY with a raw JSON object. Do not include markdown formatting, backticks, or conversational text.
-    
-    JSON SCHEMA:
-    {{
-        "vulnerable": boolean,
-        "type": "string (e.g., SQLi, XSS) or null",
-        "description": "string (Detailed explanation of the exploit vector) or null"
-    }}
-    
-    CODE TO ANALYZE:
-    {code_content}
-        """
-        
+    # 1. High-Speed Regex Filtering
+    risky_files = []
+    for file_path in batch_files:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            if is_potentially_vulnerable(content, file_path):
+                risky_files.append({"path": file_path, "content": content})
+            else:
+                state["logs"].append(f"✅ Fast-Pass Clean (Regex): {file_path}")
+        except Exception as e:
+            state["logs"].append(f"⚠️ Error reading {file_path}: {str(e)}")
+
+    # 2. Unified LLM Batch Call (for the risky ones)
+    if risky_files:
+        state["logs"].append(f"🧠 Dispatching {len(risky_files)} files to Nemotron for Deep Scan...")
         llm = ChatOpenAI(
             base_url="https://api.studio.nebius.ai/v1/",
-            api_key=os.getenv("NEBIUS_API_KEY"),
-            model="meta-llama/Llama-3.3-70B-Instruct",
-            temperature=0.0
+            api_key=nebius_key,
+            model="nvidia/nemotron-3-super-120b-a12b", # Using your preferred 120B model
+            temperature=0.2
         )
-
-        response = llm.invoke([
-            SystemMessage(content="You are a strict JSON security auditor. Output MUST be valid JSON."),
-            HumanMessage(content=prompt)
-        ])
         
-        # Clean the response
-        clean_json_str = response.content.replace("```json", "").replace("```", "").strip()
-        
+        # Prepare batch inputs
+        batch_inputs = []
+        for rf in risky_files:
+            prompt = f"""
+            You are an elite Application Security Engineer.
+            Analyze this code that was flagged by a pre-filter. Perform a forensic audit.
+            
+            RULES: Focus ONLY on critical exploits. Response must be raw JSON.
+            JSON SCHEMA: {{"vulnerable": boolean, "type": string, "description": string}}
+            
+            CODE:
+            {rf['content']}
+            """
+            batch_inputs.append([
+                SystemMessage(content="You are a strict JSON security auditor. Output raw JSON ONLY."),
+                HumanMessage(content=prompt)
+            ])
+            
         try:
-            result = json.loads(clean_json_str)
+            # UNIFIED TRACING: Explicitly naming the run so LangSmith groups them as one unit
+            responses = llm.batch(
+                batch_inputs, 
+                config={"run_name": f"Deep-Audit: {len(risky_files)} Files"}
+            )
             
-            if result.get("vulnerable") is True:
-                state["vulnerabilities"].append({
-                    "file": file_path, 
-                    "finding": result.get("description", "Unknown vulnerability"),
-                    "type": result.get("type", "Unknown")
-                })
-                state["logs"].append(f"🚨 Security vulnerability found in {file_path}")
-            else:
-                state["logs"].append(f"✅ {file_path} is safe.")
-                
-        except json.JSONDecodeError:
-             state["logs"].append(f"⚠️ Error: LLM returned invalid JSON for {file_path}")
-            
-    except Exception as e:
-        state["logs"].append(f"Error reading {file_path}: {str(e)}")
-        
-    state["current_file_index"] += 1
+            for rf, resp in zip(risky_files, responses):
+                content = resp.content.strip()
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0].strip()
+                elif "```" in content:
+                    content = content.split("```")[1].split("```")[0].strip()
+                    
+                result = json.loads(content)
+                if result.get("vulnerable"):
+                    state["vulnerabilities"].append({
+                        "file": rf["path"],
+                        "finding": result.get("description", "Vulnerability detected."),
+                        "type": result.get("type", "Security Bug")
+                    })
+                    state["logs"].append(f"🚨 ALERT: {result.get('type')} in {rf['path']}")
+                else:
+                    state["logs"].append(f"✅ Deep-Scan Clean (LLM): {rf['path']}")
+        except Exception as e:
+            state["logs"].append(f"❌ Batch LLM Error: {str(e)}")
+
+    state["current_file_index"] += len(batch_files)
     return state
 
 def node_report(state: AgentState):

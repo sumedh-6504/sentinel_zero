@@ -49,6 +49,7 @@ export interface Vulnerability {
   suggested_fix: string;
   status: string;
   human_review_status: string;
+  trace_url?: string | null;
   created_at: string;
   scan_jobs?: {
     repositories: {

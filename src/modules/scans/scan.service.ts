@@ -26,7 +26,8 @@ export class ScanService {
       .insert({ 
         repo_id: repo.id, 
         status: 'queued',
-        user_id: userId
+        user_id: userId,
+        trace_url: `https://smith.langchain.com/o/default/projects/p/sentinel-zero?tab=traces`
       })
       .select()
       .single();
@@ -70,7 +71,8 @@ export class ScanService {
       .update({ 
         human_review_status: decision,
         human_feedback: feedback,
-        status: decision === 'rejected_false_positive' ? 'closed' : 'fixing' 
+        status: decision === 'rejected_false_positive' ? 'closed' : 'fixing',
+        trace_url: decision === 'approved_real_bug' ? `https://smith.langchain.com/o/default/projects/p/sentinel-zero?tab=traces` : null
       })
       .eq('id', vuln_id)
       .select()

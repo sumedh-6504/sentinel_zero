@@ -62,7 +62,11 @@ def clone_and_inspect(repo_url: str, job_id: str):
         }
         
         # This will run gather_files -> analyze_code (loop) -> report
-        final_state = sentinel_brain.invoke(initial_state)
+        # UNIFIED TRACING: Naming the parent trace for LangSmith
+        final_state = sentinel_brain.invoke(
+            initial_state,
+            config={"run_name": f"Sentinel-Scan: {repo_name}"}
+        )
         all_vulnerabilities = final_state["vulnerabilities"]
         file_paths = final_state["files_to_scan"]
 

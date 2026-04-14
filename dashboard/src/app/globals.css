@@ -11,9 +11,16 @@
   --color-card: rgba(30, 41, 59, 0.7);
 }
 
+/* Sentinel-Elite Design Tokens */
 :root {
-  --background: #0f172a;
+  --background: #060912;
   --foreground: #f8fafc;
+  --neon-cyan: #22d3ee;
+  --neon-emerald: #10b981;
+  --neon-crimson: #ef4444;
+  --neon-amber: #f59e0b;
+  --glass-bg: rgba(15, 23, 42, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
 }
 
 body {
@@ -21,40 +28,75 @@ body {
   color: var(--foreground);
   font-family: 'Inter', sans-serif;
   overflow-x: hidden;
+  position: relative;
 }
 
-/* Custom Scrollbar */
+/* Digital Mesh Background Pattern */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: 
+    linear-gradient(rgba(34, 211, 238, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: center center;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Premium Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: #020617;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 4px;
+  background: #1e293b;
+  border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 10px var(--neon-cyan);
 }
 
-/* Premium Utilities */
+/* Elite Glassmorphism */
 .glass {
-  background: rgba(30, 41, 59, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
 }
 
-.glow-cyan {
-  box-shadow: 0 0 15px rgba(34, 211, 238, 0.3);
+.glass-hover:hover {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(34, 211, 238, 0.3);
+  box-shadow: 0 0 25px rgba(34, 211, 238, 0.1);
+  transform: translateY(-2px);
 }
 
-.glow-crimson {
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+/* Neon Breathing Keyframes */
+@keyframes neon-pulse {
+  0% { opacity: 0.6; filter: brightness(0.8) blur(1px); }
+  50% { opacity: 1; filter: brightness(1.2) blur(0px); }
+  100% { opacity: 0.6; filter: brightness(0.8) blur(1px); }
 }
+
+.animate-neon {
+  animation: neon-pulse 3s ease-in-out infinite;
+}
+
+.glow-cyan { box-shadow: 0 0 15px rgba(34, 211, 238, 0.3); }
+.glow-emerald { box-shadow: 0 0 15px rgba(16, 185, 129, 0.3); }
+.glow-crimson { box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); }
+.glow-amber { box-shadow: 0 0 15px rgba(245, 158, 11, 0.3); }
 
 .gradient-text {
-  background: linear-gradient(135deg, #22d3ee 0%, #0ea5e9 100%);
+  background: linear-gradient(135deg, #fff 0%, var(--neon-cyan) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
