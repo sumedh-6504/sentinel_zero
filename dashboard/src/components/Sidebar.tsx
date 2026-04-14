@@ -97,10 +97,17 @@ export function Sidebar() {
           <span className="font-medium">Terminate Session</span>
         </button>
         
-        <button className="flex w-full items-center gap-3 px-4 py-3 text-slate-400 hover:text-slate-100 hover:bg-white/5 rounded-xl transition-all">
-          <Settings className="w-5 h-5" />
+        <Link
+          href="/settings"
+          className={`flex w-full items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+            pathname === "/settings"
+              ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-[0_0_15px_rgba(34,211,238,0.1)]"
+              : "text-slate-400 hover:text-slate-100 hover:bg-white/5"
+          }`}
+        >
+          <Settings className={`w-5 h-5 ${pathname === "/settings" ? "text-cyan-400" : ""}`} />
           <span className="font-medium">Settings</span>
-        </button>
+        </Link>
       </div>
     </div>
   );

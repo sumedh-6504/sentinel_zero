@@ -21,8 +21,38 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const supabase = createClient();
+
+  const handleResendEmail = async () => {
+    if (resendCooldown > 0) return;
+    setIsLoading(true);
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      }
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setMessage("Verification signal re-transmitted. Check your inbox.");
+      setResendCooldown(60);
+      const timer = setInterval(() => {
+        setResendCooldown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    setIsLoading(false);
+  };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,13 +74,21 @@ export default function SignupPage() {
     });
 
     if (error) {
-      setError(error.message);
+      if (error.message.includes("rate limit")) {
+        setError("Rate limit reached. Please use GitHub or Google for instant access, or try again in an hour.");
+      } else if (error.message.includes("already registered")) {
+        setError("This operator is already in the grid. Redirecting to authorization...");
+        setTimeout(() => window.location.href = "/login", 2000);
+      } else {
+        setError(error.message);
+      }
       setIsLoading(false);
     } else {
-      if (data.session) {
+      // If "Confirm Email" is OFF in Supabase settings, data.session will exist immediately
+      if (data?.session) {
         window.location.href = "/";
       } else {
-        setMessage("Activation signal sent. Please check your email to verify your terminal credentials.");
+        setMessage("Activation signal sent! Please verify your email terminal to proceed.");
         setIsLoading(false);
       }
     }
@@ -96,8 +134,15 @@ export default function SignupPage() {
         )}
 
         {message && (
-          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-sm">
-            {message}
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-3">
+            <p className="text-emerald-400 text-sm leading-relaxed">{message}</p>
+            <button 
+              onClick={handleResendEmail}
+              disabled={isLoading || resendCooldown > 0}
+              className="text-[10px] font-bold uppercase tracking-widest text-emerald-500 hover:text-emerald-400 disabled:opacity-50 transition-colors flex items-center gap-2"
+            >
+              {resendCooldown > 0 ? `Retry allowed in ${resendCooldown}s` : "Resend Activation Signal"}
+            </button>
           </div>
         )}
 

@@ -43,7 +43,7 @@ def node_gather_files(state: AgentState):
 import json # Make sure to add 'import json' at the very top of brain.py
 
 def node_analyze_code(state: AgentState):
-    """Reads a file and asks Nebius if it is vulnerable with an advanced structural prompt."""
+    """Reads a file and asks Nebius if it is vulnerable using the user's specific prompt."""
     idx = state["current_file_index"]
     file_path = state["files_to_scan"][idx]
     
@@ -51,59 +51,56 @@ def node_analyze_code(state: AgentState):
         with open(file_path, "r", encoding="utf-8") as f:
             code_content = f.read()
             
-        # Advanced, strict prompt engineering for vulnerability detection
         prompt = f"""
-        You are an elite Application Security Engineer performing static analysis.
-        Analyze the following code for critical vulnerabilities (SQL Injection, XSS, Path Traversal, Hardcoded Secrets, Command Injection).
-        
-        RULES:
-        1. Ignore best-practice warnings (e.g., missing docstrings) or minor linting issues.
-        2. Focus ONLY on exploitable security flaws.
-        3. You must respond ONLY with a raw JSON object. Do not include markdown formatting, backticks, or conversational text.
-        
-        JSON SCHEMA:
-        {{
-            "vulnerable": boolean,
-            "type": "string (e.g., SQLi, XSS) or null",
-            "description": "string (Detailed explanation of the exploit vector) or null"
-        }}
-        
-        CODE TO ANALYZE:
-        {code_content}
+    You are an elite Application Security Engineer performing static analysis.
+    Analyze the following code for critical vulnerabilities (SQL Injection, XSS, Path Traversal, Hardcoded Secrets, Command Injection).
+    
+    RULES:
+    1. Ignore best-practice warnings (e.g., missing docstrings) or minor linting issues.
+    2. Focus ONLY on exploitable security flaws.
+    3. You must respond ONLY with a raw JSON object. Do not include markdown formatting, backticks, or conversational text.
+    
+    JSON SCHEMA:
+    {{
+        "vulnerable": boolean,
+        "type": "string (e.g., SQLi, XSS) or null",
+        "description": "string (Detailed explanation of the exploit vector) or null"
+    }}
+    
+    CODE TO ANALYZE:
+    {code_content}
         """
         
         llm = ChatOpenAI(
             base_url="https://api.studio.nebius.ai/v1/",
             api_key=os.getenv("NEBIUS_API_KEY"),
-            model="meta-llama/Llama-3.3-70B-Instruct-fast",
-            temperature=0.0 # Changed to 0.0 for maximum determinism
+            model="meta-llama/Llama-3.3-70B-Instruct",
+            temperature=0.0
         )
 
         response = llm.invoke([
-            SystemMessage(content="You are a strict JSON API. Output only raw JSON."),
+            SystemMessage(content="You are a strict JSON security auditor. Output MUST be valid JSON."),
             HumanMessage(content=prompt)
         ])
         
-        # Clean the response in case the LLM stubbornly returns markdown
+        # Clean the response
         clean_json_str = response.content.replace("```json", "").replace("```", "").strip()
         
         try:
-            # Safely parse the LLM's response into a Python dictionary
             result = json.loads(clean_json_str)
             
             if result.get("vulnerable") is True:
-                # Store the structured dict, not the raw string string
                 state["vulnerabilities"].append({
                     "file": file_path, 
                     "finding": result.get("description", "Unknown vulnerability"),
                     "type": result.get("type", "Unknown")
                 })
-                state["logs"].append(f"🚨 Security vulnerability ({result.get('type')}) found in {file_path}")
+                state["logs"].append(f"🚨 Security vulnerability found in {file_path}")
             else:
                 state["logs"].append(f"✅ {file_path} is safe.")
                 
         except json.JSONDecodeError:
-             state["logs"].append(f"⚠️ Warning: LLM returned invalid JSON for {file_path}. Raw output: {clean_json_str}")
+             state["logs"].append(f"⚠️ Error: LLM returned invalid JSON for {file_path}")
             
     except Exception as e:
         state["logs"].append(f"Error reading {file_path}: {str(e)}")

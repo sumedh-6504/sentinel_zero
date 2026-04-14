@@ -3,7 +3,7 @@ dotenv.config();
 
 const testDeployPR = async () => {
     // REPLACE THIS with a real vulnerability ID from your database!
-    const VULN_ID = "77679f5d-23ce-4102-bce4-a90d94d98caa"; 
+    const VULN_ID = "21f12a2b-6f6d-4e4c-8f8b-5cbd60d77522"; 
     const API_URL = `http://localhost:3001/api/v1/scans/deploy-pr/${VULN_ID}`;
     
     console.log(`🚀 Triggering Autonomous PR for Vulnerability: ${VULN_ID}...`);

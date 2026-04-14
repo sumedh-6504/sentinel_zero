@@ -13,10 +13,15 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
       const forwardedHost = request.headers.get("x-forwarded-host"); // bookmarkable link
-      const isLocalEnv = process.env.NODE_VERSION?.startsWith("v"); // Better detection?
+      const isLocalEnv = process.env.NODE_ENV === "development";
+      
       if (isLocalEnv) {
-        // we can be sure that there is no proxy during local dev
-        return NextResponse.redirect(`${origin}${next}`);
+        // If we land on port 3000 (standard) but want 3002, force the switch
+        const targetOrigin = origin.includes("localhost:3000") 
+          ? origin.replace("3000", "3002") 
+          : origin.includes("localhost") ? origin : "http://localhost:3002";
+          
+        return NextResponse.redirect(`${targetOrigin}${next}`);
       } else if (forwardedHost) {
         return NextResponse.redirect(`https://${forwardedHost}${next}`);
       } else {
